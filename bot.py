@@ -2,14 +2,16 @@ import discord
 import os
 import random
 import time
-import openai
 from discord.ext import commands
 from datetime import timedelta
+from openai import OpenAI
 
 # ---------------- CONFIG ----------------
 TOKEN = os.environ["DISCORD_TOKEN"]
-openai.api_key = os.environ["OPENAI_API_KEY"]
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 OWNER_ID = 1403449777978609674
+
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 intents = discord.Intents.default()
 intents.members = True
@@ -18,9 +20,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ---------------- STORAGE ----------------
-warn_log = {}
 snipe_cache = {}
-mod_log_channel_id = None
 start_time = time.time()
 
 # ---------------- READY ----------------
@@ -43,26 +43,31 @@ async def on_message_delete(message):
 
     snipe_cache[message.channel.id] = {
         "content": message.content or "No text",
-        "author": str(message.author),
-        "avatar": message.author.display_avatar.url
+        "author": str(message.author)
     }
 
 
-# ---------------- AI COMMAND ----------------
-@bot.tree.command(name="ai", description="Ask AI")
+# ---------------- AI COMMAND (FIXED) ----------------
+@bot.tree.command(name="ai", description="Chat with AI")
 async def ai(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
 
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a helpful Discord assistant."},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "system",
+                    "content": "You are a helpful Discord assistant. Keep responses short and clear."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
             ]
         )
 
-        reply = response["choices"][0]["message"]["content"]
+        reply = response.choices[0].message.content
 
         if len(reply) > 1900:
             reply = reply[:1900] + "..."
@@ -137,77 +142,21 @@ async def eightball(interaction: discord.Interaction, question: str):
     )
 
 
-# ---------------- RPS (BUTTONS) ----------------
-class RPSView(discord.ui.View):
-    def __init__(self, user):
-        super().__init__(timeout=30)
-        self.user = user
-
-    async def interaction_check(self, interaction: discord.Interaction):
-        return interaction.user.id == self.user.id
-
-    @discord.ui.button(label="Rock", style=discord.ButtonStyle.primary)
-    async def rock(self, interaction, button):
-        await self.play(interaction, "rock")
-
-    @discord.ui.button(label="Paper", style=discord.ButtonStyle.success)
-    async def paper(self, interaction, button):
-        await self.play(interaction, "paper")
-
-    @discord.ui.button(label="Scissors", style=discord.ButtonStyle.danger)
-    async def scissors(self, interaction, button):
-        await self.play(interaction, "scissors")
-
-    async def play(self, interaction, choice):
-        bot_choice = random.choice(["rock", "paper", "scissors"])
-
-        if choice == bot_choice:
-            result = "Tie"
-        elif (choice == "rock" and bot_choice == "scissors") or \
-             (choice == "paper" and bot_choice == "rock") or \
-             (choice == "scissors" and bot_choice == "paper"):
-            result = "You Win"
-        else:
-            result = "You Lose"
-
-        await interaction.response.edit_message(
-            content=f"You: {choice} | Bot: {bot_choice}\n**{result}**",
-            view=None
-        )
-
-
-@bot.tree.command(name="rps")
-async def rps(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        "Choose:",
-        view=RPSView(interaction.user)
-    )
-
-
-# ---------------- MODERATION ----------------
+# ---------------- MODERATION (OWNER ONLY SIMPLE) ----------------
 @bot.tree.command(name="kick")
-async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
+async def kick(interaction: discord.Interaction, member: discord.Member):
     if interaction.user.id != OWNER_ID:
         return
-    await member.kick(reason=reason)
+    await member.kick()
     await interaction.response.send_message("Kicked")
 
 
 @bot.tree.command(name="ban")
-async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
+async def ban(interaction: discord.Interaction, member: discord.Member):
     if interaction.user.id != OWNER_ID:
         return
-    await member.ban(reason=reason)
+    await member.ban()
     await interaction.response.send_message("Banned")
-
-
-@bot.tree.command(name="mute")
-async def mute(interaction: discord.Interaction, member: discord.Member, minutes: int):
-    if interaction.user.id != OWNER_ID:
-        return
-    until = discord.utils.utcnow() + timedelta(minutes=minutes)
-    await member.timeout(until)
-    await interaction.response.send_message("Muted")
 
 
 bot.run(TOKEN)
