@@ -3,14 +3,26 @@ import os
 from discord.ext import commands
 from datetime import timedelta
 
-# 🔐 Token from environment variable (Replit / VPS safe)
+# 🔐 Token from environment variable
 TOKEN = os.environ['DISCORD_TOKEN']
+
+# 👑 Only this user can use the bot
+OWNER_ID = 1403449777978609674
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# ---------------- OWNER ONLY CHECK ----------------
+async def owner_only(ctx):
+    if ctx.author.id != OWNER_ID:
+        await ctx.send("❌ You are not Pax.")
+        return False
+    return True
+
+bot.check(owner_only)
 
 # ---------------- BASIC COMMANDS ----------------
 @bot.event
@@ -38,6 +50,15 @@ async def botname(ctx):
     await ctx.send("My name is Pax's Bot 😎")
 
 
+# ---------------- CHANGE GAME STATUS ----------------
+@bot.command()
+async def setgame(ctx, *, game_name):
+    await bot.change_presence(
+        activity=discord.Game(name=game_name)
+    )
+    await ctx.send(f"🎮 Status changed to: `{game_name}`")
+
+
 # ---------------- HELP COMMAND ----------------
 bot.remove_command('help')
 
@@ -55,6 +76,7 @@ async def help(ctx):
 `!ping` - Check bot latency
 `!hello` - Say hello
 `!botname` - Bot's name
+`!setgame <text>` - Change bot status
         """,
         inline=False
     )
@@ -85,7 +107,6 @@ async def help(ctx):
 
 # ---------------- MODERATION: KICK ----------------
 @bot.command()
-@commands.has_permissions(kick_members=True)
 async def kick(ctx, member: discord.Member, *, reason=None):
     await member.kick(reason=reason)
     await ctx.send(f"👢 Kicked {member.mention}")
@@ -93,7 +114,6 @@ async def kick(ctx, member: discord.Member, *, reason=None):
 
 # ---------------- MODERATION: BAN ----------------
 @bot.command()
-@commands.has_permissions(ban_members=True)
 async def ban(ctx, member: discord.Member, *, reason=None):
     await member.ban(reason=reason)
     await ctx.send(f"🔨 Banned {member.mention}")
@@ -101,16 +121,14 @@ async def ban(ctx, member: discord.Member, *, reason=None):
 
 # ---------------- MODERATION: UNBAN ----------------
 @bot.command()
-@commands.has_permissions(ban_members=True)
 async def unban(ctx, user_id: int):
     user = await bot.fetch_user(user_id)
     await ctx.guild.unban(user)
     await ctx.send(f"♻️ Unbanned {user}")
 
 
-# ---------------- MODERATION: MUTE (TIMEOUT) ----------------
+# ---------------- MODERATION: MUTE ----------------
 @bot.command()
-@commands.has_permissions(moderate_members=True)
 async def mute(ctx, member: discord.Member, minutes: int, *, reason=None):
     until = discord.utils.utcnow() + timedelta(minutes=minutes)
     await member.timeout(until, reason=reason)
@@ -119,7 +137,6 @@ async def mute(ctx, member: discord.Member, minutes: int, *, reason=None):
 
 # ---------------- MODERATION: UNMUTE ----------------
 @bot.command()
-@commands.has_permissions(moderate_members=True)
 async def unmute(ctx, member: discord.Member):
     await member.timeout(None)
     await ctx.send(f"🔊 Unmuted {member.mention}")
@@ -129,7 +146,6 @@ async def unmute(ctx, member: discord.Member):
 warn_log = {}
 
 @bot.command()
-@commands.has_permissions(kick_members=True)
 async def warn(ctx, member: discord.Member, *, reason=None):
     uid = member.id
 
@@ -150,13 +166,19 @@ async def warnings(ctx, member: discord.Member):
 
 
 # ---------------- ERROR HANDLING ----------------
-@kick.error
-@ban.error
-@mute.error
-@warn.error
-async def perms_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You don't have permission to use this command.")
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CheckFailure):
+        await ctx.send("❌ You are not Pax.")
+
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send("❌ Missing required arguments.")
+
+    elif isinstance(error, commands.MemberNotFound):
+        await ctx.send("❌ Member not found.")
+
+    else:
+        print(error)
 
 
 bot.run(TOKEN)
