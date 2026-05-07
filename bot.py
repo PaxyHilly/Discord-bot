@@ -1,162 +1,34 @@
 import discord
 import os
-import random
-import time
 from discord.ext import commands
-from datetime import timedelta
-from openai import OpenAI
 
-# ---------------- CONFIG ----------------
 TOKEN = os.environ["DISCORD_TOKEN"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-OWNER_ID = 1403449777978609674
-
-client = OpenAI(api_key=OPENAI_API_KEY)
 
 intents = discord.Intents.default()
-intents.members = True
-intents.message_content = True
-
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ---------------- STORAGE ----------------
-snipe_cache = {}
-start_time = time.time()
 
-# ---------------- READY ----------------
 @bot.event
 async def on_ready():
-    try:
-        synced = await bot.tree.sync()
-        print(f"✅ Synced {len(synced)} commands")
-    except Exception as e:
-        print(e)
-
     print(f"Logged in as {bot.user}")
 
+    # 🔥 STEP 1: WIPE OLD COMMANDS (GLOBAL)
+    bot.tree.clear_commands(guild=None)
 
-# ---------------- SNIPE ----------------
-@bot.event
-async def on_message_delete(message):
-    if message.author.bot:
-        return
+    # 🔥 STEP 2: RE-SYNC EMPTY STATE FIRST
+    await bot.tree.sync()
 
-    snipe_cache[message.channel.id] = {
-        "content": message.content or "No text",
-        "author": str(message.author)
-    }
+    print("🧹 Cleared all old slash commands")
 
+    # 🔥 STEP 3: OPTIONAL — re-add a test command
+    @bot.tree.command(name="ping", description="test command")
+    async def ping(interaction: discord.Interaction):
+        await interaction.response.send_message("Pong!")
 
-# ---------------- AI COMMAND (FIXED) ----------------
-@bot.tree.command(name="ai", description="Chat with AI")
-async def ai(interaction: discord.Interaction, prompt: str):
-    await interaction.response.defer()
+    # 🔥 STEP 4: FINAL SYNC (fresh commands only)
+    await bot.tree.sync()
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful Discord assistant. Keep responses short and clear."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        )
-
-        reply = response.choices[0].message.content
-
-        if len(reply) > 1900:
-            reply = reply[:1900] + "..."
-
-        await interaction.followup.send(reply)
-
-    except Exception as e:
-        await interaction.followup.send(f"❌ AI error: {e}")
-
-
-# ---------------- UTILITY ----------------
-@bot.tree.command(name="ping")
-async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message(f"🏓 {round(bot.latency * 1000)}ms")
-
-
-@bot.tree.command(name="uptime")
-async def uptime(interaction: discord.Interaction):
-    await interaction.response.send_message(f"⏱ {int(time.time() - start_time)}s")
-
-
-@bot.tree.command(name="userinfo")
-async def userinfo(interaction: discord.Interaction, member: discord.Member):
-    embed = discord.Embed(title=str(member))
-    embed.add_field(name="ID", value=member.id)
-    embed.add_field(name="Joined", value=str(member.joined_at))
-    await interaction.response.send_message(embed=embed)
-
-
-@bot.tree.command(name="serverstats")
-async def serverstats(interaction: discord.Interaction):
-    await interaction.response.defer()
-
-    g = interaction.guild
-
-    embed = discord.Embed(title=f"📊 {g.name}")
-    embed.add_field(name="Members", value=g.member_count)
-    embed.add_field(name="Roles", value=len(g.roles))
-    embed.add_field(name="Owner", value=str(g.owner))
-
-    await interaction.followup.send(embed=embed)
-
-
-@bot.tree.command(name="snipe")
-async def snipe(interaction: discord.Interaction):
-    data = snipe_cache.get(interaction.channel.id)
-
-    if not data:
-        return await interaction.response.send_message("Nothing to snipe.")
-
-    embed = discord.Embed(description=data["content"])
-    embed.set_footer(text=data["author"])
-
-    await interaction.response.send_message(embed=embed)
-
-
-# ---------------- FUN ----------------
-@bot.tree.command(name="coinflip")
-async def coinflip(interaction: discord.Interaction):
-    await interaction.response.send_message(random.choice(["Heads", "Tails"]))
-
-
-@bot.tree.command(name="roll")
-async def roll(interaction: discord.Interaction, sides: int = 6):
-    await interaction.response.send_message(str(random.randint(1, sides)))
-
-
-@bot.tree.command(name="8ball")
-async def eightball(interaction: discord.Interaction, question: str):
-    await interaction.response.send_message(
-        random.choice(["Yes", "No", "Maybe", "Definitely", "Ask again"])
-    )
-
-
-# ---------------- MODERATION (OWNER ONLY SIMPLE) ----------------
-@bot.tree.command(name="kick")
-async def kick(interaction: discord.Interaction, member: discord.Member):
-    if interaction.user.id != OWNER_ID:
-        return
-    await member.kick()
-    await interaction.response.send_message("Kicked")
-
-
-@bot.tree.command(name="ban")
-async def ban(interaction: discord.Interaction, member: discord.Member):
-    if interaction.user.id != OWNER_ID:
-        return
-    await member.ban()
-    await interaction.response.send_message("Banned")
+    print("✅ Commands fully reset and synced")
 
 
 bot.run(TOKEN)
