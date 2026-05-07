@@ -14,12 +14,17 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ---------------- WARN STORAGE ----------------
 warn_log = {}
 
-# ---------------- READY ----------------
+
+# ---------------- READY (FORCE SYNC) ----------------
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} command(s)")
+    except Exception as e:
+        print("Sync error:", e)
+
     print(f"Logged in as {bot.user}")
-    print("Slash commands synced successfully.")
 
 
 # ---------------- OWNER CHECK ----------------
@@ -50,18 +55,20 @@ async def kick(interaction: discord.Interaction, member: discord.Member, reason:
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
 
+    await interaction.response.defer()
     await member.kick(reason=reason)
-    await interaction.response.send_message(f"👢 Kicked {member.mention}")
+    await interaction.followup.send(f"👢 Kicked {member.mention}")
 
 
-# ---------------- BAN ----------------
+# ---------------- BAN (FIXED) ----------------
 @bot.tree.command(name="ban", description="Ban a member")
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
 
+    await interaction.response.defer()
     await member.ban(reason=reason)
-    await interaction.response.send_message(f"🔨 Banned {member.mention}")
+    await interaction.followup.send(f"🔨 Banned {member.mention}")
 
 
 # ---------------- UNBAN ----------------
