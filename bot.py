@@ -1,5 +1,6 @@
 import discord
 import os
+import random
 from discord.ext import commands
 from datetime import timedelta
 
@@ -11,17 +12,18 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ---------------- WARN STORAGE ----------------
+# ---------------- STORAGE ----------------
 warn_log = {}
+mod_log_channel_id = None
+
 
 # ---------------- READY ----------------
 @bot.event
 async def on_ready():
     try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} commands")
-    except Exception as e:
-        print("Sync error:", e)
+        await bot.tree.sync()
+    except:
+        pass
 
     print(f"Logged in as {bot.user}")
 
@@ -31,12 +33,37 @@ def is_owner(interaction: discord.Interaction):
     return interaction.user.id == OWNER_ID
 
 
+# ---------------- MODLOG HELPER ----------------
+async def send_modlog(guild, title, description):
+    if not mod_log_channel_id:
+        return
+
+    channel = guild.get_channel(mod_log_channel_id)
+    if channel:
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=discord.Color.red()
+        )
+        await channel.send(embed=embed)
+
+
+# ---------------- SET MODLOG CHANNEL ----------------
+@bot.tree.command(name="modlog", description="Set mod log channel")
+async def modlog(interaction: discord.Interaction, channel: discord.TextChannel):
+    global mod_log_channel_id
+
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
+
+    mod_log_channel_id = channel.id
+    await interaction.response.send_message(f"🧾 Mod logs set to {channel.mention}")
+
+
 # ---------------- PING ----------------
 @bot.tree.command(name="ping", description="Check bot latency")
 async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        f"🏓 Pong! `{round(bot.latency * 1000)}ms`"
-    )
+    await interaction.response.send_message(f"🏓 `{round(bot.latency * 1000)}ms`")
 
 
 # ---------------- SET GAME ----------------
@@ -49,83 +76,122 @@ async def setgame(interaction: discord.Interaction, name: str):
     await interaction.response.send_message(f"🎮 Status set to: {name}")
 
 
-# ---------------- KICK ----------------
-@bot.tree.command(name="kick", description="Kick a member")
+# ---------------- USER INFO ----------------
+@bot.tree.command(name="userinfo", description="Get user info")
+async def userinfo(interaction: discord.Interaction, member: discord.Member):
+    embed = discord.Embed(title=f"{member}")
+
+    embed.add_field(name="ID", value=member.id)
+    embed.add_field(name="Joined", value=str(member.joined_at))
+    embed.add_field(name="Created", value=str(member.created_at))
+    embed.add_field(
+        name="Roles",
+        value=", ".join([r.name for r in member.roles if r.name != "@everyone"])
+    )
+
+    await interaction.response.send_message(embed=embed)
+
+
+# ---------------- SERVER INFO ----------------
+@bot.tree.command(name="serverinfo", description="Server info")
+async def serverinfo(interaction: discord.Interaction):
+    g = interaction.guild
+
+    embed = discord.Embed(title=g.name)
+    embed.add_field(name="Members", value=g.member_count)
+    embed.add_field(name="Owner", value=str(g.owner))
+    embed.add_field(name="Roles", value=len(g.roles))
+
+    await interaction.response.send_message(embed=embed)
+
+
+# ---------------- FUN COMMANDS ----------------
+@bot.tree.command(name="coinflip", description="Flip a coin")
+async def coinflip(interaction: discord.Interaction):
+    await interaction.response.send_message(random.choice(["Heads", "Tails"]))
+
+
+@bot.tree.command(name="roll", description="Roll a dice")
+async def roll(interaction: discord.Interaction, sides: int = 6):
+    await interaction.response.send_message(f"🎲 {random.randint(1, sides)}")
+
+
+@bot.tree.command(name="8ball", description="Ask 8ball")
+async def eightball(interaction: discord.Interaction, question: str):
+    answers = ["Yes", "No", "Maybe", "Definitely", "Ask again"]
+    await interaction.response.send_message(f"🎱 {random.choice(answers)}")
+
+
+# ---------------- MODERATION: KICK ----------------
+@bot.tree.command(name="kick", description="Kick member")
 async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
 
-    try:
-        await interaction.response.defer()
-        await member.kick(reason=reason)
-        await interaction.followup.send(f"👢 Kicked {member.mention}")
+    await interaction.response.defer()
 
-    except Exception as e:
-        await interaction.followup.send(f"❌ Kick failed: `{e}`")
+    await member.kick(reason=reason)
+
+    await send_modlog(
+        interaction.guild,
+        "👢 Kick",
+        f"{member} was kicked\nReason: {reason}\nBy: {interaction.user}"
+    )
+
+    await interaction.followup.send(f"Kicked {member}")
 
 
-# ---------------- BAN ----------------
-@bot.tree.command(name="ban", description="Ban a member")
+# ---------------- MODERATION: BAN ----------------
+@bot.tree.command(name="ban", description="Ban member")
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
 
-    try:
-        await interaction.response.defer()
-        await member.ban(reason=reason)
-        await interaction.followup.send(f"🔨 Banned {member.mention}")
+    await interaction.response.defer()
 
-    except Exception as e:
-        await interaction.followup.send(f"❌ Ban failed: `{e}`")
+    await member.ban(reason=reason)
+
+    await send_modlog(
+        interaction.guild,
+        "🔨 Ban",
+        f"{member} was banned\nReason: {reason}\nBy: {interaction.user}"
+    )
+
+    await interaction.followup.send(f"Banned {member}")
 
 
-# ---------------- UNBAN ----------------
-@bot.tree.command(name="unban", description="Unban user by ID")
-async def unban(interaction: discord.Interaction, user_id: str):
+# ---------------- MODERATION: MUTE ----------------
+@bot.tree.command(name="mute", description="Timeout member")
+async def mute(interaction: discord.Interaction, member: discord.Member, minutes: int):
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
 
-    try:
-        user = await bot.fetch_user(int(user_id))
-        await interaction.guild.unban(user)
-        await interaction.response.send_message(f"♻️ Unbanned {user}")
+    await interaction.response.defer()
 
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Unban failed: `{e}`")
+    until = discord.utils.utcnow() + timedelta(minutes=minutes)
+    await member.timeout(until)
 
+    await send_modlog(
+        interaction.guild,
+        "🔇 Mute",
+        f"{member} muted for {minutes} minutes\nBy: {interaction.user}"
+    )
 
-# ---------------- MUTE ----------------
-@bot.tree.command(name="mute", description="Timeout a member")
-async def mute(interaction: discord.Interaction, member: discord.Member, minutes: int, reason: str = "No reason"):
-    if interaction.user.id != OWNER_ID:
-        return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
-
-    try:
-        await interaction.response.defer()
-        until = discord.utils.utcnow() + timedelta(minutes=minutes)
-        await member.timeout(until, reason=reason)
-        await interaction.followup.send(f"🔇 Muted {member.mention} for {minutes} minutes")
-
-    except Exception as e:
-        await interaction.followup.send(f"❌ Mute failed: `{e}`")
+    await interaction.followup.send(f"Muted {member}")
 
 
-# ---------------- UNMUTE ----------------
+# ---------------- MODERATION: UNMUTE ----------------
 @bot.tree.command(name="unmute", description="Remove timeout")
 async def unmute(interaction: discord.Interaction, member: discord.Member):
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
 
-    try:
-        await member.timeout(None)
-        await interaction.response.send_message(f"🔊 Unmuted {member.mention}")
-
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Unmute failed: `{e}`")
+    await member.timeout(None)
+    await interaction.response.send_message(f"🔊 Unmuted {member}")
 
 
-# ---------------- WARN ----------------
-@bot.tree.command(name="warn", description="Warn a member")
+# ---------------- WARN SYSTEM ----------------
+@bot.tree.command(name="warn", description="Warn user")
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: str):
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
@@ -133,7 +199,7 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
     warn_log.setdefault(member.id, []).append(reason)
 
     await interaction.response.send_message(
-        f"⚠️ Warned {member.mention} | Total: {len(warn_log[member.id])}"
+        f"⚠️ Warned {member} | Total: {len(warn_log[member.id])}"
     )
 
 
@@ -141,35 +207,7 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
 @bot.tree.command(name="warnings", description="Check warnings")
 async def warnings(interaction: discord.Interaction, member: discord.Member):
     count = len(warn_log.get(member.id, []))
-    await interaction.response.send_message(
-        f"📄 {member.mention} has {count} warning(s)."
-    )
-
-
-# ---------------- GLOBAL ERROR DEBUGGER ----------------
-@bot.event
-async def on_app_command_error(interaction: discord.Interaction, error):
-
-    async def send(msg):
-        try:
-            if interaction.response.is_done():
-                await interaction.followup.send(msg, ephemeral=True)
-            else:
-                await interaction.response.send_message(msg, ephemeral=True)
-        except:
-            pass
-
-    if isinstance(error, discord.Forbidden):
-        await send("❌ I don't have permission OR my role is too low.")
-
-    elif isinstance(error, discord.app_commands.errors.MissingPermissions):
-        await send("❌ Missing permissions.")
-
-    elif isinstance(error, discord.app_commands.errors.CommandInvokeError):
-        await send(f"❌ Command error: `{error.original}`")
-
-    else:
-        await send(f"❌ Unexpected error: `{type(error).__name__}`")
+    await interaction.response.send_message(f"📄 {member} has {count} warnings")
 
 
 bot.run(TOKEN)
