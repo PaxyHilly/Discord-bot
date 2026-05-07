@@ -3,27 +3,28 @@ import os
 from discord.ext import commands
 from datetime import timedelta
 
-TOKEN = os.environ['DISCORD_TOKEN']
+TOKEN = os.environ["DISCORD_TOKEN"]
 OWNER_ID = 1403449777978609674
 
 intents = discord.Intents.default()
-intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)  # prefix no longer used much
+bot = commands.Bot(command_prefix="!", intents=intents)
 
+# ---------------- WARN STORAGE ----------------
 warn_log = {}
-
-# ---------------- CHECK OWNER ----------------
-def is_owner(interaction: discord.Interaction):
-    return interaction.user.id == OWNER_ID
-
 
 # ---------------- READY ----------------
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print("Pax's Bot is online (slash commands enabled)")
+    print(f"Logged in as {bot.user}")
+    print("Slash commands synced successfully.")
+
+
+# ---------------- OWNER CHECK ----------------
+def is_owner(interaction: discord.Interaction):
+    return interaction.user.id == OWNER_ID
 
 
 # ---------------- PING ----------------
@@ -44,7 +45,7 @@ async def setgame(interaction: discord.Interaction, name: str):
 
 
 # ---------------- KICK ----------------
-@bot.tree.command(name="kick", description="Kick a user")
+@bot.tree.command(name="kick", description="Kick a member")
 async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
@@ -54,7 +55,7 @@ async def kick(interaction: discord.Interaction, member: discord.Member, reason:
 
 
 # ---------------- BAN ----------------
-@bot.tree.command(name="ban", description="Ban a user")
+@bot.tree.command(name="ban", description="Ban a member")
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
@@ -64,7 +65,7 @@ async def ban(interaction: discord.Interaction, member: discord.Member, reason: 
 
 
 # ---------------- UNBAN ----------------
-@bot.tree.command(name="unban", description="Unban a user by ID")
+@bot.tree.command(name="unban", description="Unban user by ID")
 async def unban(interaction: discord.Interaction, user_id: str):
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
@@ -75,7 +76,7 @@ async def unban(interaction: discord.Interaction, user_id: str):
 
 
 # ---------------- MUTE ----------------
-@bot.tree.command(name="mute", description="Timeout a user")
+@bot.tree.command(name="mute", description="Timeout a member")
 async def mute(interaction: discord.Interaction, member: discord.Member, minutes: int, reason: str = "No reason"):
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
@@ -96,16 +97,15 @@ async def unmute(interaction: discord.Interaction, member: discord.Member):
 
 
 # ---------------- WARN ----------------
-@bot.tree.command(name="warn", description="Warn a user")
+@bot.tree.command(name="warn", description="Warn a member")
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: str):
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
 
-    uid = member.id
-    warn_log.setdefault(uid, []).append(reason)
+    warn_log.setdefault(member.id, []).append(reason)
 
     await interaction.response.send_message(
-        f"⚠️ Warned {member.mention} | Total: {len(warn_log[uid])}"
+        f"⚠️ Warned {member.mention} | Total: {len(warn_log[member.id])}"
     )
 
 
