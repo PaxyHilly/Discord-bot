@@ -7,8 +7,6 @@ from datetime import timedelta
 
 TOKEN = os.environ["DISCORD_TOKEN"]
 OWNER_ID = 1403449777978609674
-
-# 👇 YOUR SERVER (GUILD) ID FOR INSTANT SYNC
 SYNC_GUILD_ID = 1476207834306973766
 
 intents = discord.Intents.default()
@@ -22,31 +20,26 @@ warn_log = {}
 mod_log_channel_id = None
 snipe_cache = {}
 
-# ---------------- READY (PERSISTENT SYNC) ----------------
+# ---------------- READY (SAFE SYNC) ----------------
 @bot.event
 async def on_ready():
     await asyncio.sleep(3)
 
     if getattr(bot, "synced", False):
-        print("⚡ Already synced this session")
         return
 
     try:
         guild = discord.Object(id=SYNC_GUILD_ID)
-
-        # 🔥 Fast guild sync (no global spam)
         await bot.tree.sync(guild=guild)
-
         bot.synced = True
-        print("✅ Commands synced (guild mode)")
-
+        print("✅ Synced commands (guild mode)")
     except Exception as e:
-        print(f"❌ Sync error: {e}")
+        print(f"Sync error: {e}")
 
     print(f"Logged in as {bot.user}")
 
 
-# ---------------- MESSAGE DELETE (SNIPE FIXED) ----------------
+# ---------------- SNIPE ----------------
 @bot.event
 async def on_message_delete(message):
     if message.author.bot:
@@ -89,7 +82,7 @@ async def ping(interaction: discord.Interaction):
 
 
 # ---------------- SNIPE ----------------
-@bot.tree.command(name="snipe", description="Show last deleted message")
+@bot.tree.command(name="snipe")
 async def snipe(interaction: discord.Interaction):
     data = snipe_cache.get(interaction.channel.id)
 
@@ -108,6 +101,45 @@ async def snipe(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 
+# ---------------- DEBUG ----------------
+@bot.tree.command(name="debug")
+async def debug(interaction: discord.Interaction):
+    guild = interaction.guild
+
+    embed = discord.Embed(title="🧠 Debug Info")
+
+    embed.add_field(name="Latency", value=f"{round(bot.latency * 1000)}ms", inline=False)
+    embed.add_field(name="Guild", value=guild.name, inline=False)
+    embed.add_field(name="Guild ID", value=guild.id, inline=False)
+    embed.add_field(name="Snipe Cache", value=len(snipe_cache), inline=False)
+    embed.add_field(name="Modlog", value=str(mod_log_channel_id), inline=False)
+    embed.add_field(name="Owner", value="Yes" if interaction.user.id == OWNER_ID else "No")
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# ---------------- RELOAD (INSTANT COMMAND UPDATE) ----------------
+@bot.tree.command(name="reload")
+async def reload(interaction: discord.Interaction):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
+
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        guild = discord.Object(id=SYNC_GUILD_ID)
+
+        bot.tree.clear_commands(guild=guild)
+        await asyncio.sleep(2)
+
+        synced = await bot.tree.sync(guild=guild)
+
+        await interaction.followup.send(f"⚡ Reloaded {len(synced)} commands")
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Reload failed: {e}")
+
+
 # ---------------- SET GAME ----------------
 @bot.tree.command(name="setgame")
 async def setgame(interaction: discord.Interaction, name: str):
@@ -124,19 +156,6 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member):
     embed = discord.Embed(title=str(member))
     embed.add_field(name="ID", value=member.id)
     embed.add_field(name="Joined", value=str(member.joined_at))
-    embed.add_field(name="Created", value=str(member.created_at))
-    await interaction.response.send_message(embed=embed)
-
-
-# ---------------- SERVER INFO ----------------
-@bot.tree.command(name="serverinfo")
-async def serverinfo(interaction: discord.Interaction):
-    g = interaction.guild
-
-    embed = discord.Embed(title=g.name)
-    embed.add_field(name="Members", value=g.member_count)
-    embed.add_field(name="Roles", value=len(g.roles))
-
     await interaction.response.send_message(embed=embed)
 
 
@@ -153,9 +172,7 @@ async def roll(interaction: discord.Interaction, sides: int = 6):
 
 @bot.tree.command(name="8ball")
 async def eightball(interaction: discord.Interaction, question: str):
-    await interaction.response.send_message(
-        random.choice(["Yes", "No", "Maybe", "Definitely", "Ask again"])
-    )
+    await interaction.response.send_message(random.choice(["Yes", "No", "Maybe", "Definitely"]))
 
 
 # ---------------- MODERATION ----------------
@@ -166,7 +183,6 @@ async def kick(interaction: discord.Interaction, member: discord.Member, reason:
 
     await interaction.response.defer()
     await member.kick(reason=reason)
-
     await send_modlog(interaction.guild, "👢 Kick", f"{member} | {reason}")
     await interaction.followup.send("Kicked")
 
@@ -178,7 +194,6 @@ async def ban(interaction: discord.Interaction, member: discord.Member, reason: 
 
     await interaction.response.defer()
     await member.ban(reason=reason)
-
     await send_modlog(interaction.guild, "🔨 Ban", f"{member} | {reason}")
     await interaction.followup.send("Banned")
 
@@ -202,7 +217,7 @@ async def unmute(interaction: discord.Interaction, member: discord.Member):
     await interaction.response.send_message("Unmuted")
 
 
-# ---------------- WARN SYSTEM ----------------
+# ---------------- WARN ----------------
 @bot.tree.command(name="warn")
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: str):
     if interaction.user.id != OWNER_ID:
