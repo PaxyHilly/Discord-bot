@@ -1,13 +1,17 @@
 import discord
 import os
 import random
-import asyncio
 import time
 from discord.ext import commands
 from datetime import timedelta
+from openai import OpenAI
 
+# ---------------- CONFIG ----------------
 TOKEN = os.environ["DISCORD_TOKEN"]
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 OWNER_ID = 1403449777978609674
+
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 intents = discord.Intents.default()
 intents.members = True
@@ -21,6 +25,7 @@ snipe_cache = {}
 mod_log_channel_id = None
 start_time = time.time()
 
+
 # ---------------- READY ----------------
 @bot.event
 async def on_ready():
@@ -28,7 +33,7 @@ async def on_ready():
         synced = await bot.tree.sync()
         print(f"✅ Synced {len(synced)} commands")
     except Exception as e:
-        print(f"Sync error: {e}")
+        print(e)
 
     print(f"Logged in as {bot.user}")
 
@@ -46,19 +51,38 @@ async def on_message_delete(message):
     }
 
 
-# ---------------- MOD LOG ----------------
-async def log(guild, title, desc):
-    if not mod_log_channel_id:
-        return
-    ch = guild.get_channel(mod_log_channel_id)
-    if ch:
-        await ch.send(embed=discord.Embed(title=title, description=desc))
+# ---------------- AI COMMAND ----------------
+@bot.tree.command(name="ai", description="Chat with AI")
+async def ai(interaction: discord.Interaction, prompt: str):
+    await interaction.response.defer()
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful Discord assistant. Keep replies short and clear."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+
+        reply = response.choices[0].message.content
+
+        if len(reply) > 1900:
+            reply = reply[:1900] + "..."
+
+        await interaction.followup.send(reply)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error: {e}")
 
 
-# =========================
-# 🧠 UTILITY
-# =========================
-
+# ---------------- UTILITY ----------------
 @bot.tree.command(name="ping")
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message(f"🏓 {round(bot.latency * 1000)}ms")
@@ -67,7 +91,7 @@ async def ping(interaction: discord.Interaction):
 @bot.tree.command(name="uptime")
 async def uptime(interaction: discord.Interaction):
     seconds = int(time.time() - start_time)
-    await interaction.response.send_message(f"⏱ Uptime: {seconds}s")
+    await interaction.response.send_message(f"⏱ {seconds}s")
 
 
 @bot.tree.command(name="userinfo")
@@ -78,6 +102,20 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member):
     await interaction.response.send_message(embed=embed)
 
 
+@bot.tree.command(name="serverstats")
+async def serverstats(interaction: discord.Interaction):
+    await interaction.response.defer()
+
+    g = interaction.guild
+
+    embed = discord.Embed(title=f"📊 {g.name}")
+    embed.add_field(name="Members", value=g.member_count)
+    embed.add_field(name="Roles", value=len(g.roles))
+    embed.add_field(name="Owner", value=str(g.owner))
+
+    await interaction.followup.send(embed=embed)
+
+
 @bot.tree.command(name="snipe")
 async def snipe(interaction: discord.Interaction):
     data = snipe_cache.get(interaction.channel.id)
@@ -85,73 +123,13 @@ async def snipe(interaction: discord.Interaction):
     if not data:
         return await interaction.response.send_message("Nothing to snipe.")
 
-    embed = discord.Embed(title="🕵️ Snipe", description=data["content"])
+    embed = discord.Embed(description=data["content"])
     embed.set_footer(text=data["author"])
-    embed.set_thumbnail(url=data["avatar"])
+
     await interaction.response.send_message(embed=embed)
 
 
-# =========================
-# 📊 FIXED SERVER STATS
-# =========================
-
-@bot.tree.command(name="serverstats")
-async def serverstats(interaction: discord.Interaction):
-    await interaction.response.defer()  # 🔥 FIX FOR "unknown integration"
-
-    g = interaction.guild
-
-    embed = discord.Embed(title=f"📊 {g.name} Stats")
-
-    embed.add_field(name="👥 Members", value=g.member_count, inline=True)
-    embed.add_field(name="📜 Roles", value=len(g.roles), inline=True)
-    embed.add_field(name="🆔 ID", value=g.id, inline=False)
-    embed.add_field(name="👑 Owner", value=str(g.owner), inline=False)
-    embed.add_field(name="📅 Created", value=str(g.created_at), inline=False)
-
-    await interaction.followup.send(embed=embed)
-
-
-# =========================
-# 🔐 SERVER CONTROL
-# =========================
-
-@bot.tree.command(name="clear")
-async def clear(interaction: discord.Interaction, amount: int):
-    if interaction.user.id != OWNER_ID:
-        return
-    await interaction.channel.purge(limit=amount)
-    await interaction.response.send_message("🧹 Cleared", ephemeral=True)
-
-
-@bot.tree.command(name="lockdown")
-async def lockdown(interaction: discord.Interaction):
-    if interaction.user.id != OWNER_ID:
-        return
-
-    overwrite = interaction.channel.overwrites_for(interaction.guild.default_role)
-    overwrite.send_messages = False
-    await interaction.channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
-
-    await interaction.response.send_message("🔒 Locked")
-
-
-@bot.tree.command(name="unlock")
-async def unlock(interaction: discord.Interaction):
-    if interaction.user.id != OWNER_ID:
-        return
-
-    overwrite = interaction.channel.overwrites_for(interaction.guild.default_role)
-    overwrite.send_messages = True
-    await interaction.channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
-
-    await interaction.response.send_message("🔓 Unlocked")
-
-
-# =========================
-# 🎮 FUN
-# =========================
-
+# ---------------- FUN ----------------
 @bot.tree.command(name="coinflip")
 async def coinflip(interaction: discord.Interaction):
     await interaction.response.send_message(random.choice(["Heads", "Tails"]))
@@ -169,10 +147,7 @@ async def eightball(interaction: discord.Interaction, question: str):
     )
 
 
-# =========================
-# 🎮 BUTTON RPS
-# =========================
-
+# ---------------- RPS BUTTONS ----------------
 class RPSView(discord.ui.View):
     def __init__(self, user):
         super().__init__(timeout=30)
@@ -182,31 +157,31 @@ class RPSView(discord.ui.View):
         return interaction.user.id == self.user.id
 
     @discord.ui.button(label="Rock", style=discord.ButtonStyle.primary)
-    async def rock(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def rock(self, interaction, button):
         await self.play(interaction, "rock")
 
     @discord.ui.button(label="Paper", style=discord.ButtonStyle.success)
-    async def paper(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def paper(self, interaction, button):
         await self.play(interaction, "paper")
 
     @discord.ui.button(label="Scissors", style=discord.ButtonStyle.danger)
-    async def scissors(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def scissors(self, interaction, button):
         await self.play(interaction, "scissors")
 
-    async def play(self, interaction, user_choice):
+    async def play(self, interaction, choice):
         bot_choice = random.choice(["rock", "paper", "scissors"])
 
-        if user_choice == bot_choice:
-            result = "Tie!"
-        elif (user_choice == "rock" and bot_choice == "scissors") or \
-             (user_choice == "paper" and bot_choice == "rock") or \
-             (user_choice == "scissors" and bot_choice == "paper"):
-            result = "You Win!"
+        if choice == bot_choice:
+            result = "Tie"
+        elif (choice == "rock" and bot_choice == "scissors") or \
+             (choice == "paper" and bot_choice == "rock") or \
+             (choice == "scissors" and bot_choice == "paper"):
+            result = "You Win"
         else:
-            result = "You Lose!"
+            result = "You Lose"
 
         await interaction.response.edit_message(
-            content=f"You: {user_choice} | Bot: {bot_choice}\n**{result}**",
+            content=f"You: {choice} | Bot: {bot_choice}\n**{result}**",
             view=None
         )
 
@@ -219,33 +194,33 @@ async def rps(interaction: discord.Interaction):
     )
 
 
-# =========================
-# 📘 HELP MENU
-# =========================
+# ---------------- MODERATION ----------------
+@bot.tree.command(name="kick")
+async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
+    if interaction.user.id != OWNER_ID:
+        return
 
-@bot.tree.command(name="help")
-async def help(interaction: discord.Interaction):
-    embed = discord.Embed(title="🤖 Bot Help")
+    await member.kick(reason=reason)
+    await interaction.response.send_message("Kicked")
 
-    embed.add_field(
-        name="🧠 Utility",
-        value="/ping /uptime /userinfo /snipe /serverstats",
-        inline=False
-    )
 
-    embed.add_field(
-        name="🎮 Fun",
-        value="/coinflip /roll /8ball /rps",
-        inline=False
-    )
+@bot.tree.command(name="ban")
+async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
+    if interaction.user.id != OWNER_ID:
+        return
 
-    embed.add_field(
-        name="🔐 Control",
-        value="/clear /lockdown /unlock",
-        inline=False
-    )
+    await member.ban(reason=reason)
+    await interaction.response.send_message("Banned")
 
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="mute")
+async def mute(interaction: discord.Interaction, member: discord.Member, minutes: int):
+    if interaction.user.id != OWNER_ID:
+        return
+
+    until = discord.utils.utcnow() + timedelta(minutes=minutes)
+    await member.timeout(until)
+    await interaction.response.send_message("Muted")
 
 
 bot.run(TOKEN)
