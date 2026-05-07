@@ -2,12 +2,12 @@ import discord
 import os
 import random
 import asyncio
+import time
 from discord.ext import commands
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 TOKEN = os.environ["DISCORD_TOKEN"]
 OWNER_ID = 1403449777978609674
-SYNC_GUILD_ID = 1476207834306973766
 
 intents = discord.Intents.default()
 intents.members = True
@@ -17,24 +17,19 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ---------------- STORAGE ----------------
 warn_log = {}
-mod_log_channel_id = None
 snipe_cache = {}
+mod_log_channel_id = None
+start_time = time.time()
 
-# ---------------- READY (SAFE SYNC) ----------------
+
+# ---------------- READY ----------------
 @bot.event
 async def on_ready():
-    await asyncio.sleep(3)
-
-    if getattr(bot, "synced", False):
-        return
-
     try:
-        guild = discord.Object(id=SYNC_GUILD_ID)
-        await bot.tree.sync(guild=guild)
-        bot.synced = True
-        print("✅ Synced commands (guild mode)")
+        synced = await bot.tree.sync()
+        print(f"✅ Synced {len(synced)} commands")
     except Exception as e:
-        print(f"Sync error: {e}")
+        print(e)
 
     print(f"Logged in as {bot.user}")
 
@@ -53,104 +48,37 @@ async def on_message_delete(message):
 
 
 # ---------------- MODLOG ----------------
-async def send_modlog(guild, title, desc):
+async def log(guild, title, desc):
     if not mod_log_channel_id:
         return
-
-    channel = guild.get_channel(mod_log_channel_id)
-    if channel:
-        embed = discord.Embed(title=title, description=desc, color=discord.Color.red())
-        await channel.send(embed=embed)
+    ch = guild.get_channel(mod_log_channel_id)
+    if ch:
+        await ch.send(embed=discord.Embed(title=title, description=desc))
 
 
-# ---------------- MODLOG SET ----------------
-@bot.tree.command(name="modlog", description="Set mod log channel")
-async def modlog(interaction: discord.Interaction, channel: discord.TextChannel):
-    global mod_log_channel_id
+# =========================
+# 🧠 UTILITY COMMANDS
+# =========================
 
-    if interaction.user.id != OWNER_ID:
-        return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
-
-    mod_log_channel_id = channel.id
-    await interaction.response.send_message(f"🧾 Mod logs set to {channel.mention}")
-
-
-# ---------------- PING ----------------
 @bot.tree.command(name="ping")
 async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message(f"🏓 `{round(bot.latency * 1000)}ms`")
+    await interaction.response.send_message(f"🏓 {round(bot.latency * 1000)}ms")
 
 
-# ---------------- SNIPE ----------------
-@bot.tree.command(name="snipe")
-async def snipe(interaction: discord.Interaction):
-    data = snipe_cache.get(interaction.channel.id)
+@bot.tree.command(name="uptime")
+async def uptime(interaction: discord.Interaction):
+    up = int(time.time() - start_time)
+    await interaction.response.send_message(f"⏱ Uptime: {up} seconds")
 
-    if not data:
-        return await interaction.response.send_message("Nothing to snipe.")
 
-    embed = discord.Embed(
-        title="🕵️ Snipe",
-        description=data["content"],
-        color=discord.Color.orange()
+@bot.tree.command(name="serverstats")
+async def serverstats(interaction: discord.Interaction):
+    g = interaction.guild
+    await interaction.response.send_message(
+        f"👥 Members: {g.member_count}\n📜 Roles: {len(g.roles)}"
     )
 
-    embed.set_footer(text=f"Author: {data['author']}")
-    embed.set_thumbnail(url=data["avatar"])
 
-    await interaction.response.send_message(embed=embed)
-
-
-# ---------------- DEBUG ----------------
-@bot.tree.command(name="debug")
-async def debug(interaction: discord.Interaction):
-    guild = interaction.guild
-
-    embed = discord.Embed(title="🧠 Debug Info")
-
-    embed.add_field(name="Latency", value=f"{round(bot.latency * 1000)}ms", inline=False)
-    embed.add_field(name="Guild", value=guild.name, inline=False)
-    embed.add_field(name="Guild ID", value=guild.id, inline=False)
-    embed.add_field(name="Snipe Cache", value=len(snipe_cache), inline=False)
-    embed.add_field(name="Modlog", value=str(mod_log_channel_id), inline=False)
-    embed.add_field(name="Owner", value="Yes" if interaction.user.id == OWNER_ID else "No")
-
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-# ---------------- RELOAD (INSTANT COMMAND UPDATE) ----------------
-@bot.tree.command(name="reload")
-async def reload(interaction: discord.Interaction):
-    if interaction.user.id != OWNER_ID:
-        return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
-
-    await interaction.response.defer(ephemeral=True)
-
-    try:
-        guild = discord.Object(id=SYNC_GUILD_ID)
-
-        bot.tree.clear_commands(guild=guild)
-        await asyncio.sleep(2)
-
-        synced = await bot.tree.sync(guild=guild)
-
-        await interaction.followup.send(f"⚡ Reloaded {len(synced)} commands")
-
-    except Exception as e:
-        await interaction.followup.send(f"❌ Reload failed: {e}")
-
-
-# ---------------- SET GAME ----------------
-@bot.tree.command(name="setgame")
-async def setgame(interaction: discord.Interaction, name: str):
-    if interaction.user.id != OWNER_ID:
-        return
-
-    await bot.change_presence(activity=discord.Game(name=name))
-    await interaction.response.send_message(f"🎮 {name}")
-
-
-# ---------------- USER INFO ----------------
 @bot.tree.command(name="userinfo")
 async def userinfo(interaction: discord.Interaction, member: discord.Member):
     embed = discord.Embed(title=str(member))
@@ -159,7 +87,68 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member):
     await interaction.response.send_message(embed=embed)
 
 
-# ---------------- FUN ----------------
+@bot.tree.command(name="snipe")
+async def snipe(interaction: discord.Interaction):
+    data = snipe_cache.get(interaction.channel.id)
+    if not data:
+        return await interaction.response.send_message("Nothing to snipe")
+
+    embed = discord.Embed(description=data["content"], title="🕵️ Snipe")
+    embed.set_footer(text=data["author"])
+    embed.set_thumbnail(url=data["avatar"])
+    await interaction.response.send_message(embed=embed)
+
+
+# =========================
+# 🔐 SERVER CONTROL / SECURITY
+# =========================
+
+@bot.tree.command(name="clear")
+async def clear(interaction: discord.Interaction, amount: int):
+    if interaction.user.id != OWNER_ID:
+        return
+    await interaction.channel.purge(limit=amount)
+    await interaction.response.send_message("🧹 Cleared", ephemeral=True)
+
+
+@bot.tree.command(name="lockdown")
+async def lockdown(interaction: discord.Interaction):
+    if interaction.user.id != OWNER_ID:
+        return
+
+    overwrite = interaction.channel.overwrites_for(interaction.guild.default_role)
+    overwrite.send_messages = False
+    await interaction.channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
+
+    await interaction.response.send_message("🔒 Locked")
+
+
+@bot.tree.command(name="unlock")
+async def unlock(interaction: discord.Interaction):
+    if interaction.user.id != OWNER_ID:
+        return
+
+    overwrite = interaction.channel.overwrites_for(interaction.guild.default_role)
+    overwrite.send_messages = True
+    await interaction.channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
+
+    await interaction.response.send_message("🔓 Unlocked")
+
+
+@bot.tree.command(name="modlog")
+async def modlog(interaction: discord.Interaction, channel: discord.TextChannel):
+    global mod_log_channel_id
+    if interaction.user.id != OWNER_ID:
+        return
+
+    mod_log_channel_id = channel.id
+    await interaction.response.send_message(f"📜 Modlog set to {channel.mention}")
+
+
+# =========================
+# 🎮 FUN COMMANDS
+# =========================
+
 @bot.tree.command(name="coinflip")
 async def coinflip(interaction: discord.Interaction):
     await interaction.response.send_message(random.choice(["Heads", "Tails"]))
@@ -172,19 +161,74 @@ async def roll(interaction: discord.Interaction, sides: int = 6):
 
 @bot.tree.command(name="8ball")
 async def eightball(interaction: discord.Interaction, question: str):
-    await interaction.response.send_message(random.choice(["Yes", "No", "Maybe", "Definitely"]))
+    await interaction.response.send_message(random.choice([
+        "Yes", "No", "Maybe", "Definitely", "Ask again"
+    ]))
 
 
-# ---------------- MODERATION ----------------
+# =========================
+# 🎮 BUTTON RPS SYSTEM
+# =========================
+
+class RPSView(discord.ui.View):
+    def __init__(self, user):
+        super().__init__(timeout=30)
+        self.user = user
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        return interaction.user.id == self.user.id
+
+    @discord.ui.button(label="Rock", style=discord.ButtonStyle.primary)
+    async def rock(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.play(interaction, "rock")
+
+    @discord.ui.button(label="Paper", style=discord.ButtonStyle.success)
+    async def paper(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.play(interaction, "paper")
+
+    @discord.ui.button(label="Scissors", style=discord.ButtonStyle.danger)
+    async def scissors(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.play(interaction, "scissors")
+
+    async def play(self, interaction, user_choice):
+        bot_choice = random.choice(["rock", "paper", "scissors"])
+
+        result = "Tie!"
+        if user_choice == bot_choice:
+            result = "Tie!"
+        elif (user_choice == "rock" and bot_choice == "scissors") or \
+             (user_choice == "paper" and bot_choice == "rock") or \
+             (user_choice == "scissors" and bot_choice == "paper"):
+            result = "You Win!"
+        else:
+            result = "You Lose!"
+
+        await interaction.response.edit_message(
+            content=f"You: {user_choice} | Bot: {bot_choice}\n**{result}**",
+            view=None
+        )
+
+
+@bot.tree.command(name="rps")
+async def rps(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        "Choose your move:",
+        view=RPSView(interaction.user)
+    )
+
+
+# =========================
+# 🔨 MODERATION
+# =========================
+
 @bot.tree.command(name="kick")
 async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
     if interaction.user.id != OWNER_ID:
         return
 
-    await interaction.response.defer()
     await member.kick(reason=reason)
-    await send_modlog(interaction.guild, "👢 Kick", f"{member} | {reason}")
-    await interaction.followup.send("Kicked")
+    await log(interaction.guild, "Kick", f"{member} | {reason}")
+    await interaction.response.send_message("Kicked")
 
 
 @bot.tree.command(name="ban")
@@ -192,10 +236,9 @@ async def ban(interaction: discord.Interaction, member: discord.Member, reason: 
     if interaction.user.id != OWNER_ID:
         return
 
-    await interaction.response.defer()
     await member.ban(reason=reason)
-    await send_modlog(interaction.guild, "🔨 Ban", f"{member} | {reason}")
-    await interaction.followup.send("Banned")
+    await log(interaction.guild, "Ban", f"{member} | {reason}")
+    await interaction.response.send_message("Banned")
 
 
 @bot.tree.command(name="mute")
@@ -203,34 +246,9 @@ async def mute(interaction: discord.Interaction, member: discord.Member, minutes
     if interaction.user.id != OWNER_ID:
         return
 
-    await interaction.response.defer()
     until = discord.utils.utcnow() + timedelta(minutes=minutes)
     await member.timeout(until)
-
-    await send_modlog(interaction.guild, "🔇 Mute", f"{member} | {minutes}m")
-    await interaction.followup.send("Muted")
-
-
-@bot.tree.command(name="unmute")
-async def unmute(interaction: discord.Interaction, member: discord.Member):
-    await member.timeout(None)
-    await interaction.response.send_message("Unmuted")
-
-
-# ---------------- WARN ----------------
-@bot.tree.command(name="warn")
-async def warn(interaction: discord.Interaction, member: discord.Member, reason: str):
-    if interaction.user.id != OWNER_ID:
-        return
-
-    warn_log.setdefault(member.id, []).append(reason)
-    await interaction.response.send_message("Warned")
-
-
-@bot.tree.command(name="warnings")
-async def warnings(interaction: discord.Interaction, member: discord.Member):
-    count = len(warn_log.get(member.id, []))
-    await interaction.response.send_message(f"{count} warnings")
+    await interaction.response.send_message("Muted")
 
 
 bot.run(TOKEN)
