@@ -14,13 +14,12 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ---------------- WARN STORAGE ----------------
 warn_log = {}
 
-
-# ---------------- READY (FORCE SYNC) ----------------
+# ---------------- READY ----------------
 @bot.event
 async def on_ready():
     try:
         synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} command(s)")
+        print(f"Synced {len(synced)} commands")
     except Exception as e:
         print("Sync error:", e)
 
@@ -35,8 +34,9 @@ def is_owner(interaction: discord.Interaction):
 # ---------------- PING ----------------
 @bot.tree.command(name="ping", description="Check bot latency")
 async def ping(interaction: discord.Interaction):
-    latency = round(bot.latency * 1000)
-    await interaction.response.send_message(f"🏓 Pong! `{latency}ms`")
+    await interaction.response.send_message(
+        f"🏓 Pong! `{round(bot.latency * 1000)}ms`"
+    )
 
 
 # ---------------- SET GAME ----------------
@@ -60,7 +60,7 @@ async def kick(interaction: discord.Interaction, member: discord.Member, reason:
     await interaction.followup.send(f"👢 Kicked {member.mention}")
 
 
-# ---------------- BAN (FIXED) ----------------
+# ---------------- BAN (FIXED ANTI-HANG) ----------------
 @bot.tree.command(name="ban", description="Ban a member")
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
     if interaction.user.id != OWNER_ID:
@@ -88,9 +88,10 @@ async def mute(interaction: discord.Interaction, member: discord.Member, minutes
     if interaction.user.id != OWNER_ID:
         return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
 
+    await interaction.response.defer()
     until = discord.utils.utcnow() + timedelta(minutes=minutes)
     await member.timeout(until, reason=reason)
-    await interaction.response.send_message(f"🔇 Muted {member.mention} for {minutes} minutes")
+    await interaction.followup.send(f"🔇 Muted {member.mention} for {minutes} minutes")
 
 
 # ---------------- UNMUTE ----------------
@@ -123,6 +124,18 @@ async def warnings(interaction: discord.Interaction, member: discord.Member):
     await interaction.response.send_message(
         f"📄 {member.mention} has {count} warning(s)."
     )
+
+
+# ---------------- ERROR SAFETY ----------------
+@bot.event
+async def on_app_command_error(interaction: discord.Interaction, error):
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send("❌ Error occurred.")
+        else:
+            await interaction.response.send_message("❌ Error occurred.")
+    except:
+        pass
 
 
 bot.run(TOKEN)
