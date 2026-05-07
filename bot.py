@@ -1,11 +1,15 @@
 import discord
 import os
 import random
+import asyncio
 from discord.ext import commands
 from datetime import timedelta
 
 TOKEN = os.environ["DISCORD_TOKEN"]
 OWNER_ID = 1403449777978609674
+
+# 👇 YOUR SERVER (GUILD) ID FOR INSTANT SYNC
+SYNC_GUILD_ID = 1476207834306973766
 
 intents = discord.Intents.default()
 intents.members = True
@@ -18,19 +22,31 @@ warn_log = {}
 mod_log_channel_id = None
 snipe_cache = {}
 
-# ---------------- READY (FIXED SYNC) ----------------
+# ---------------- READY (PERSISTENT SYNC) ----------------
 @bot.event
 async def on_ready():
+    await asyncio.sleep(3)
+
+    if getattr(bot, "synced", False):
+        print("⚡ Already synced this session")
+        return
+
     try:
-        synced = await bot.tree.sync()
-        print(f"✅ Synced {len(synced)} commands")
+        guild = discord.Object(id=SYNC_GUILD_ID)
+
+        # 🔥 Fast guild sync (no global spam)
+        await bot.tree.sync(guild=guild)
+
+        bot.synced = True
+        print("✅ Commands synced (guild mode)")
+
     except Exception as e:
         print(f"❌ Sync error: {e}")
 
     print(f"Logged in as {bot.user}")
 
 
-# ---------------- MESSAGE DELETE (SNIPE) ----------------
+# ---------------- MESSAGE DELETE (SNIPE FIXED) ----------------
 @bot.event
 async def on_message_delete(message):
     if message.author.bot:
@@ -54,7 +70,7 @@ async def send_modlog(guild, title, desc):
         await channel.send(embed=embed)
 
 
-# ---------------- SET MODLOG ----------------
+# ---------------- MODLOG SET ----------------
 @bot.tree.command(name="modlog", description="Set mod log channel")
 async def modlog(interaction: discord.Interaction, channel: discord.TextChannel):
     global mod_log_channel_id
@@ -67,12 +83,12 @@ async def modlog(interaction: discord.Interaction, channel: discord.TextChannel)
 
 
 # ---------------- PING ----------------
-@bot.tree.command(name="ping", description="Check latency")
+@bot.tree.command(name="ping")
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message(f"🏓 `{round(bot.latency * 1000)}ms`")
 
 
-# ---------------- SNIPE (FIXED) ----------------
+# ---------------- SNIPE ----------------
 @bot.tree.command(name="snipe", description="Show last deleted message")
 async def snipe(interaction: discord.Interaction):
     data = snipe_cache.get(interaction.channel.id)
@@ -93,17 +109,17 @@ async def snipe(interaction: discord.Interaction):
 
 
 # ---------------- SET GAME ----------------
-@bot.tree.command(name="setgame", description="Set bot status")
+@bot.tree.command(name="setgame")
 async def setgame(interaction: discord.Interaction, name: str):
     if interaction.user.id != OWNER_ID:
-        return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
+        return
 
     await bot.change_presence(activity=discord.Game(name=name))
     await interaction.response.send_message(f"🎮 {name}")
 
 
 # ---------------- USER INFO ----------------
-@bot.tree.command(name="userinfo", description="User info")
+@bot.tree.command(name="userinfo")
 async def userinfo(interaction: discord.Interaction, member: discord.Member):
     embed = discord.Embed(title=str(member))
     embed.add_field(name="ID", value=member.id)
@@ -113,7 +129,7 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member):
 
 
 # ---------------- SERVER INFO ----------------
-@bot.tree.command(name="serverinfo", description="Server info")
+@bot.tree.command(name="serverinfo")
 async def serverinfo(interaction: discord.Interaction):
     g = interaction.guild
 
