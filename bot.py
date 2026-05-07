@@ -4,7 +4,7 @@ import random
 import asyncio
 import time
 from discord.ext import commands
-from datetime import timedelta, datetime
+from datetime import timedelta
 
 TOKEN = os.environ["DISCORD_TOKEN"]
 OWNER_ID = 1403449777978609674
@@ -21,7 +21,6 @@ snipe_cache = {}
 mod_log_channel_id = None
 start_time = time.time()
 
-
 # ---------------- READY ----------------
 @bot.event
 async def on_ready():
@@ -29,7 +28,7 @@ async def on_ready():
         synced = await bot.tree.sync()
         print(f"✅ Synced {len(synced)} commands")
     except Exception as e:
-        print(e)
+        print(f"Sync error: {e}")
 
     print(f"Logged in as {bot.user}")
 
@@ -47,7 +46,7 @@ async def on_message_delete(message):
     }
 
 
-# ---------------- MODLOG ----------------
+# ---------------- MOD LOG ----------------
 async def log(guild, title, desc):
     if not mod_log_channel_id:
         return
@@ -57,7 +56,7 @@ async def log(guild, title, desc):
 
 
 # =========================
-# 🧠 UTILITY COMMANDS
+# 🧠 UTILITY
 # =========================
 
 @bot.tree.command(name="ping")
@@ -67,16 +66,8 @@ async def ping(interaction: discord.Interaction):
 
 @bot.tree.command(name="uptime")
 async def uptime(interaction: discord.Interaction):
-    up = int(time.time() - start_time)
-    await interaction.response.send_message(f"⏱ Uptime: {up} seconds")
-
-
-@bot.tree.command(name="serverstats")
-async def serverstats(interaction: discord.Interaction):
-    g = interaction.guild
-    await interaction.response.send_message(
-        f"👥 Members: {g.member_count}\n📜 Roles: {len(g.roles)}"
-    )
+    seconds = int(time.time() - start_time)
+    await interaction.response.send_message(f"⏱ Uptime: {seconds}s")
 
 
 @bot.tree.command(name="userinfo")
@@ -90,17 +81,39 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member):
 @bot.tree.command(name="snipe")
 async def snipe(interaction: discord.Interaction):
     data = snipe_cache.get(interaction.channel.id)
-    if not data:
-        return await interaction.response.send_message("Nothing to snipe")
 
-    embed = discord.Embed(description=data["content"], title="🕵️ Snipe")
+    if not data:
+        return await interaction.response.send_message("Nothing to snipe.")
+
+    embed = discord.Embed(title="🕵️ Snipe", description=data["content"])
     embed.set_footer(text=data["author"])
     embed.set_thumbnail(url=data["avatar"])
     await interaction.response.send_message(embed=embed)
 
 
 # =========================
-# 🔐 SERVER CONTROL / SECURITY
+# 📊 FIXED SERVER STATS
+# =========================
+
+@bot.tree.command(name="serverstats")
+async def serverstats(interaction: discord.Interaction):
+    await interaction.response.defer()  # 🔥 FIX FOR "unknown integration"
+
+    g = interaction.guild
+
+    embed = discord.Embed(title=f"📊 {g.name} Stats")
+
+    embed.add_field(name="👥 Members", value=g.member_count, inline=True)
+    embed.add_field(name="📜 Roles", value=len(g.roles), inline=True)
+    embed.add_field(name="🆔 ID", value=g.id, inline=False)
+    embed.add_field(name="👑 Owner", value=str(g.owner), inline=False)
+    embed.add_field(name="📅 Created", value=str(g.created_at), inline=False)
+
+    await interaction.followup.send(embed=embed)
+
+
+# =========================
+# 🔐 SERVER CONTROL
 # =========================
 
 @bot.tree.command(name="clear")
@@ -135,18 +148,8 @@ async def unlock(interaction: discord.Interaction):
     await interaction.response.send_message("🔓 Unlocked")
 
 
-@bot.tree.command(name="modlog")
-async def modlog(interaction: discord.Interaction, channel: discord.TextChannel):
-    global mod_log_channel_id
-    if interaction.user.id != OWNER_ID:
-        return
-
-    mod_log_channel_id = channel.id
-    await interaction.response.send_message(f"📜 Modlog set to {channel.mention}")
-
-
 # =========================
-# 🎮 FUN COMMANDS
+# 🎮 FUN
 # =========================
 
 @bot.tree.command(name="coinflip")
@@ -161,13 +164,13 @@ async def roll(interaction: discord.Interaction, sides: int = 6):
 
 @bot.tree.command(name="8ball")
 async def eightball(interaction: discord.Interaction, question: str):
-    await interaction.response.send_message(random.choice([
-        "Yes", "No", "Maybe", "Definitely", "Ask again"
-    ]))
+    await interaction.response.send_message(
+        random.choice(["Yes", "No", "Maybe", "Definitely", "Ask again"])
+    )
 
 
 # =========================
-# 🎮 BUTTON RPS SYSTEM
+# 🎮 BUTTON RPS
 # =========================
 
 class RPSView(discord.ui.View):
@@ -193,7 +196,6 @@ class RPSView(discord.ui.View):
     async def play(self, interaction, user_choice):
         bot_choice = random.choice(["rock", "paper", "scissors"])
 
-        result = "Tie!"
         if user_choice == bot_choice:
             result = "Tie!"
         elif (user_choice == "rock" and bot_choice == "scissors") or \
@@ -212,43 +214,38 @@ class RPSView(discord.ui.View):
 @bot.tree.command(name="rps")
 async def rps(interaction: discord.Interaction):
     await interaction.response.send_message(
-        "Choose your move:",
+        "Choose:",
         view=RPSView(interaction.user)
     )
 
 
 # =========================
-# 🔨 MODERATION
+# 📘 HELP MENU
 # =========================
 
-@bot.tree.command(name="kick")
-async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
-    if interaction.user.id != OWNER_ID:
-        return
+@bot.tree.command(name="help")
+async def help(interaction: discord.Interaction):
+    embed = discord.Embed(title="🤖 Bot Help")
 
-    await member.kick(reason=reason)
-    await log(interaction.guild, "Kick", f"{member} | {reason}")
-    await interaction.response.send_message("Kicked")
+    embed.add_field(
+        name="🧠 Utility",
+        value="/ping /uptime /userinfo /snipe /serverstats",
+        inline=False
+    )
 
+    embed.add_field(
+        name="🎮 Fun",
+        value="/coinflip /roll /8ball /rps",
+        inline=False
+    )
 
-@bot.tree.command(name="ban")
-async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
-    if interaction.user.id != OWNER_ID:
-        return
+    embed.add_field(
+        name="🔐 Control",
+        value="/clear /lockdown /unlock",
+        inline=False
+    )
 
-    await member.ban(reason=reason)
-    await log(interaction.guild, "Ban", f"{member} | {reason}")
-    await interaction.response.send_message("Banned")
-
-
-@bot.tree.command(name="mute")
-async def mute(interaction: discord.Interaction, member: discord.Member, minutes: int):
-    if interaction.user.id != OWNER_ID:
-        return
-
-    until = discord.utils.utcnow() + timedelta(minutes=minutes)
-    await member.timeout(until)
-    await interaction.response.send_message("Muted")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 bot.run(TOKEN)
