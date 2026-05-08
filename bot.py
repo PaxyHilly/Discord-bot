@@ -32,6 +32,10 @@ user_api_keys = load_json(API_KEYS_FILE)
 user_memory = load_json(MEMORY_FILE)
 user_models = load_json(MODELS_FILE)
 
+# ================= MESSAGE SPLITTER =================
+def split_message(text, limit=2000):
+    return [text[i:i+limit] for i in range(0, len(text), limit)]
+
 # ================= DISCORD SETUP =================
 intents = discord.Intents.default()
 intents.members = True
@@ -74,22 +78,10 @@ class ModelSelect(discord.ui.View):
     @discord.ui.select(
         placeholder="Choose AI model...",
         options=[
-            discord.SelectOption(
-                label="Llama 3.3 (Recommended)",
-                value="Meta-Llama-3.3-70B-Instruct"
-            ),
-            discord.SelectOption(
-                label="Llama 3.1 (Old)",
-                value="Meta-Llama-3.1-405B-Instruct"
-            ),
-            discord.SelectOption(
-                label="Qwen 2.5 (Fast)",
-                value="Qwen2.5-72B-Instruct"
-            ),
-            discord.SelectOption(
-                label="DeepSeek R1 (Reasoning)",
-                value="DeepSeek-R1"
-            ),
+            discord.SelectOption(label="Llama 3.3 (Recommended)", value="Meta-Llama-3.3-70B-Instruct"),
+            discord.SelectOption(label="Llama 3.1 (Old)", value="Meta-Llama-3.1-405B-Instruct"),
+            discord.SelectOption(label="Qwen 2.5 (Fast)", value="Qwen2.5-72B-Instruct"),
+            discord.SelectOption(label="DeepSeek R1 (Reasoning)", value="DeepSeek-R1"),
         ]
     )
     async def select_callback(self, interaction: discord.Interaction, select):
@@ -112,6 +104,28 @@ async def model(interaction: discord.Interaction):
         ephemeral=True
     )
 
+# ================= SET KEY =================
+@bot.tree.command(name="setkey", description="Save API key")
+async def setkey(interaction: discord.Interaction, api_key: str):
+
+    user_api_keys[str(interaction.user.id)] = api_key
+    save_json(API_KEYS_FILE, user_api_keys)
+
+    await interaction.response.send_message("✅ API key saved.", ephemeral=True)
+
+# ================= CLEAR MEMORY =================
+@bot.tree.command(name="clearmemory")
+async def clearmemory(interaction: discord.Interaction):
+
+    uid = str(interaction.user.id)
+
+    if uid in user_memory:
+        del user_memory[uid]
+
+    save_json(MEMORY_FILE, user_memory)
+
+    await interaction.response.send_message("🧠 Memory cleared.")
+
 # ================= AI COMMAND =================
 @bot.tree.command(name="ai", description="Chat with AI")
 async def ai(interaction: discord.Interaction, prompt: str):
@@ -120,26 +134,19 @@ async def ai(interaction: discord.Interaction, prompt: str):
 
     user_id = str(interaction.user.id)
 
-    # must have API key
     if user_id not in user_api_keys:
-        return await interaction.followup.send(
-            "❌ Use `/setkey` first."
-        )
-
-    api_key = user_api_keys[user_id]
+        return await interaction.followup.send("❌ Use `/setkey` first.")
 
     client = OpenAI(
-        api_key=api_key,
+        api_key=user_api_keys[user_id],
         base_url="https://api.sambanova.ai/v1"
     )
 
-    # model selection
     model = user_models.get(
         user_id,
         "Meta-Llama-3.3-70B-Instruct"
     )
 
-    # memory init
     if user_id not in user_memory:
         user_memory[user_id] = [
             {
@@ -148,13 +155,11 @@ async def ai(interaction: discord.Interaction, prompt: str):
             }
         ]
 
-    # add message
     user_memory[user_id].append({
         "role": "user",
         "content": prompt
     })
 
-    # limit memory size
     if len(user_memory[user_id]) > 20:
         user_memory[user_id] = [
             user_memory[user_id][0]
@@ -177,38 +182,14 @@ async def ai(interaction: discord.Interaction, prompt: str):
 
         save_json(MEMORY_FILE, user_memory)
 
-        if len(reply) > 1900:
-            reply = reply[:1900] + "..."
+        # ================= SPLIT MESSAGE FIX =================
+        chunks = split_message(reply)
 
-        await interaction.followup.send(reply)
+        for chunk in chunks:
+            await interaction.followup.send(chunk)
 
     except Exception as e:
         await interaction.followup.send(f"❌ AI error:\n```{e}```")
-
-# ================= SET API KEY =================
-@bot.tree.command(name="setkey", description="Save API key")
-async def setkey(interaction: discord.Interaction, api_key: str):
-
-    user_api_keys[str(interaction.user.id)] = api_key
-    save_json(API_KEYS_FILE, user_api_keys)
-
-    await interaction.response.send_message(
-        "✅ API key saved.",
-        ephemeral=True
-    )
-
-# ================= CLEAR MEMORY =================
-@bot.tree.command(name="clearmemory", description="Clear memory")
-async def clearmemory(interaction: discord.Interaction):
-
-    uid = str(interaction.user.id)
-
-    if uid in user_memory:
-        del user_memory[uid]
-
-    save_json(MEMORY_FILE, user_memory)
-
-    await interaction.response.send_message("🧠 Memory cleared.")
 
 # ================= UTILITY =================
 @bot.tree.command(name="ping")
