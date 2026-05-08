@@ -1,15 +1,13 @@
 import discord
 import os
-import random
-import time
 import json
+import time
 import asyncio
 from discord.ext import commands
 from openai import OpenAI
 
 # ================= CONFIG =================
 TOKEN = os.environ["DISCORD_TOKEN"]
-OWNER_ID = 1403449777978609674
 
 # ================= FILES =================
 API_KEYS_FILE = "apikeys.json"
@@ -32,19 +30,18 @@ user_api_keys = load_json(API_KEYS_FILE)
 user_memory = load_json(MEMORY_FILE)
 user_models = load_json(MODELS_FILE)
 
-# ================= SPLIT =================
-def split_message(text, limit=2000):
-    return [text[i:i+limit] for i in range(0, len(text), limit)]
-
-# ================= BOT =================
+# ================= DISCORD =================
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-snipe_cache = {}
 start_time = time.time()
+
+# ================= SPLIT =================
+def split_message(text, limit=2000):
+    return [text[i:i+limit] for i in range(0, len(text), limit)]
 
 # ================= READY =================
 @bot.event
@@ -57,18 +54,7 @@ async def on_ready():
 
     print(f"🤖 Logged in as {bot.user}")
 
-# ================= SNIPE =================
-@bot.event
-async def on_message_delete(message):
-    if message.author.bot:
-        return
-
-    snipe_cache[message.channel.id] = {
-        "content": message.content or "No text",
-        "author": str(message.author)
-    }
-
-# ================= MODEL UI =================
+# ================= MODEL SELECT =================
 class ModelSelect(discord.ui.View):
     def __init__(self, user_id):
         super().__init__(timeout=30)
@@ -83,7 +69,7 @@ class ModelSelect(discord.ui.View):
             discord.SelectOption(label="DeepSeek R1", value="DeepSeek-R1"),
         ]
     )
-    async def select_callback(self, interaction: discord.Interaction, select):
+    async def callback(self, interaction: discord.Interaction, select):
 
         user_models[self.user_id] = select.values[0]
         save_json(MODELS_FILE, user_models)
@@ -93,7 +79,8 @@ class ModelSelect(discord.ui.View):
             view=None
         )
 
-# ================= MODEL COMMAND =================
+# ================= COMMANDS =================
+
 @bot.tree.command(name="model")
 async def model(interaction: discord.Interaction):
 
@@ -103,16 +90,17 @@ async def model(interaction: discord.Interaction):
         ephemeral=True
     )
 
-# ================= SET KEY =================
 @bot.tree.command(name="setkey")
 async def setkey(interaction: discord.Interaction, api_key: str):
 
     user_api_keys[str(interaction.user.id)] = api_key
     save_json(API_KEYS_FILE, user_api_keys)
 
-    await interaction.response.send_message("✅ API key saved.", ephemeral=True)
+    await interaction.response.send_message(
+        "✅ API key saved.",
+        ephemeral=True
+    )
 
-# ================= CLEAR MEMORY =================
 @bot.tree.command(name="clearmemory")
 async def clearmemory(interaction: discord.Interaction):
 
@@ -125,7 +113,7 @@ async def clearmemory(interaction: discord.Interaction):
 
     await interaction.response.send_message("🧠 Memory cleared.")
 
-# ================= AI COMMAND =================
+# ================= AI COMMAND (REPLY METHOD FIX) =================
 @bot.tree.command(name="ai")
 async def ai(interaction: discord.Interaction, prompt: str):
 
@@ -181,16 +169,17 @@ async def ai(interaction: discord.Interaction, prompt: str):
 
         save_json(MEMORY_FILE, user_memory)
 
-        # ================= FIXED SENDING =================
-        channel = interaction.channel
         chunks = split_message(reply)
 
+        # ================= REPLY METHOD (FIXED) =================
+        first = True
+
         for chunk in chunks:
-            try:
-                await channel.send(chunk)
-                await asyncio.sleep(0.25)
-            except Exception as e:
-                print(f"Send error: {e}")
+            if first:
+                await interaction.followup.send(chunk)
+                first = False
+            else:
+                await interaction.followup.send(chunk)
 
     except Exception as e:
         await interaction.followup.send(f"❌ AI error:\n```{e}```")
@@ -205,20 +194,5 @@ async def uptime(interaction: discord.Interaction):
     seconds = int(time.time() - start_time)
     await interaction.response.send_message(f"⏱ {seconds}s")
 
-# ================= SNIPE =================
-@bot.tree.command(name="snipe")
-async def snipe(interaction: discord.Interaction):
-
-    data = snipe_cache.get(interaction.channel.id)
-
-    if not data:
-        return await interaction.response.send_message("Nothing to snipe.")
-
-    embed = discord.Embed(description=data["content"])
-    embed.set_footer(text=data["author"])
-
-    await interaction.response.send_message(embed=embed)
-
-# ================= RUN BOT =================
+# ================= RUN =================
 bot.run(TOKEN)
-
