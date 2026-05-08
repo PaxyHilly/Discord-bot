@@ -64,7 +64,7 @@ async def ai(interaction: discord.Interaction, prompt: str):
 
     try:
         response = client.chat.completions.create(
-            model="Meta-Llama-3.1-8B-Instruct",
+            model="Llama-3.1-8B-Instruct",
             messages=[
                 {
                     "role": "system",
