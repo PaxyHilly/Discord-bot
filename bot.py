@@ -3,7 +3,6 @@ import os
 import random
 import time
 import json
-from datetime import timedelta
 from discord.ext import commands
 from openai import OpenAI
 
@@ -32,18 +31,17 @@ user_api_keys = load_json(API_KEYS_FILE)
 user_memory = load_json(MEMORY_FILE)
 user_models = load_json(MODELS_FILE)
 
-# ================= MESSAGE SPLITTER =================
+# ================= SPLIT FUNCTION =================
 def split_message(text, limit=2000):
     return [text[i:i+limit] for i in range(0, len(text), limit)]
 
-# ================= DISCORD SETUP =================
+# ================= BOT SETUP =================
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ================= STORAGE =================
 snipe_cache = {}
 start_time = time.time()
 
@@ -69,7 +67,7 @@ async def on_message_delete(message):
         "author": str(message.author)
     }
 
-# ================= MODEL SELECT UI =================
+# ================= MODEL UI =================
 class ModelSelect(discord.ui.View):
     def __init__(self, user_id):
         super().__init__(timeout=30)
@@ -94,7 +92,8 @@ class ModelSelect(discord.ui.View):
             view=None
         )
 
-# ================= MODEL COMMAND =================
+# ================= COMMANDS =================
+
 @bot.tree.command(name="model", description="Choose AI model")
 async def model(interaction: discord.Interaction):
 
@@ -104,7 +103,6 @@ async def model(interaction: discord.Interaction):
         ephemeral=True
     )
 
-# ================= SET KEY =================
 @bot.tree.command(name="setkey", description="Save API key")
 async def setkey(interaction: discord.Interaction, api_key: str):
 
@@ -113,7 +111,6 @@ async def setkey(interaction: discord.Interaction, api_key: str):
 
     await interaction.response.send_message("✅ API key saved.", ephemeral=True)
 
-# ================= CLEAR MEMORY =================
 @bot.tree.command(name="clearmemory")
 async def clearmemory(interaction: discord.Interaction):
 
@@ -182,16 +179,16 @@ async def ai(interaction: discord.Interaction, prompt: str):
 
         save_json(MEMORY_FILE, user_memory)
 
-        # ================= SPLIT MESSAGE FIX =================
+        # ================= SPLIT + NORMAL SEND =================
         chunks = split_message(reply)
 
         for chunk in chunks:
-            await interaction.followup.send(chunk)
+            await interaction.channel.send(chunk)
 
     except Exception as e:
-        await interaction.followup.send(f"❌ AI error:\n```{e}```")
+        await interaction.channel.send(f"❌ AI error:\n```{e}```")
 
-# ================= UTILITY =================
+# ================= UTILS =================
 @bot.tree.command(name="ping")
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message(f"🏓 {round(bot.latency * 1000)}ms")
