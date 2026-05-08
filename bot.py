@@ -1,198 +1,213 @@
 import discord
 import os
-import json
-import time
-import asyncio
+import random
 from discord.ext import commands
-from openai import OpenAI
+from datetime import timedelta
 
-# ================= CONFIG =================
 TOKEN = os.environ["DISCORD_TOKEN"]
+OWNER_ID = 1403449777978609674
 
-# ================= FILES =================
-API_KEYS_FILE = "apikeys.json"
-MEMORY_FILE = "memory.json"
-MODELS_FILE = "models.json"
-
-# ================= LOAD / SAVE =================
-def load_json(filename):
-    try:
-        with open(filename, "r") as f:
-            return json.load(f)
-    except:
-        return {}
-
-def save_json(filename, data):
-    with open(filename, "w") as f:
-        json.dump(data, f, indent=4)
-
-user_api_keys = load_json(API_KEYS_FILE)
-user_memory = load_json(MEMORY_FILE)
-user_models = load_json(MODELS_FILE)
-
-# ================= DISCORD =================
 intents = discord.Intents.default()
 intents.members = True
-intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-start_time = time.time()
+# ---------------- STORAGE ----------------
+warn_log = {}
+mod_log_channel_id = None
 
-# ================= SPLIT =================
-def split_message(text, limit=2000):
-    return [text[i:i+limit] for i in range(0, len(text), limit)]
 
-# ================= READY =================
+# ---------------- READY ----------------
 @bot.event
 async def on_ready():
     try:
-        synced = await bot.tree.sync()
-        print(f"✅ Synced {len(synced)} commands")
-    except Exception as e:
-        print(f"❌ Sync error: {e}")
+        await bot.tree.sync()
+    except:
+        pass
 
-    print(f"🤖 Logged in as {bot.user}")
+    print(f"Logged in as {bot.user}")
 
-# ================= MODEL SELECT =================
-class ModelSelect(discord.ui.View):
-    def __init__(self, user_id):
-        super().__init__(timeout=30)
-        self.user_id = str(user_id)
 
-    @discord.ui.select(
-        placeholder="Choose AI model...",
-        options=[
-            discord.SelectOption(label="Llama 3.3 (Recommended)", value="Meta-Llama-3.3-70B-Instruct"),
-            discord.SelectOption(label="Llama 3.1 (Old)", value="Meta-Llama-3.1-405B-Instruct"),
-            discord.SelectOption(label="Qwen 2.5 (Fast)", value="Qwen2.5-72B-Instruct"),
-            discord.SelectOption(label="DeepSeek R1", value="DeepSeek-R1"),
-        ]
-    )
-    async def callback(self, interaction: discord.Interaction, select):
+# ---------------- OWNER CHECK ----------------
+def is_owner(interaction: discord.Interaction):
+    return interaction.user.id == OWNER_ID
 
-        user_models[self.user_id] = select.values[0]
-        save_json(MODELS_FILE, user_models)
 
-        await interaction.response.edit_message(
-            content=f"✅ Model set to `{select.values[0]}`",
-            view=None
+# ---------------- MODLOG HELPER ----------------
+async def send_modlog(guild, title, description):
+    if not mod_log_channel_id:
+        return
+
+    channel = guild.get_channel(mod_log_channel_id)
+    if channel:
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=discord.Color.red()
         )
+        await channel.send(embed=embed)
 
-# ================= COMMANDS =================
 
-@bot.tree.command(name="model")
-async def model(interaction: discord.Interaction):
+# ---------------- SET MODLOG CHANNEL ----------------
+@bot.tree.command(name="modlog", description="Set mod log channel")
+async def modlog(interaction: discord.Interaction, channel: discord.TextChannel):
+    global mod_log_channel_id
 
-    await interaction.response.send_message(
-        "🧠 Choose AI model:",
-        view=ModelSelect(interaction.user.id),
-        ephemeral=True
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
+
+    mod_log_channel_id = channel.id
+    await interaction.response.send_message(f"🧾 Mod logs set to {channel.mention}")
+
+
+# ---------------- PING ----------------
+@bot.tree.command(name="ping", description="Check bot latency")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message(f"🏓 `{round(bot.latency * 1000)}ms`")
+
+
+# ---------------- SET GAME ----------------
+@bot.tree.command(name="setgame", description="Change bot status")
+async def setgame(interaction: discord.Interaction, name: str):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
+
+    await bot.change_presence(activity=discord.Game(name=name))
+    await interaction.response.send_message(f"🎮 Status set to: {name}")
+
+
+# ---------------- USER INFO ----------------
+@bot.tree.command(name="userinfo", description="Get user info")
+async def userinfo(interaction: discord.Interaction, member: discord.Member):
+    embed = discord.Embed(title=f"{member}")
+
+    embed.add_field(name="ID", value=member.id)
+    embed.add_field(name="Joined", value=str(member.joined_at))
+    embed.add_field(name="Created", value=str(member.created_at))
+    embed.add_field(
+        name="Roles",
+        value=", ".join([r.name for r in member.roles if r.name != "@everyone"])
     )
 
-@bot.tree.command(name="setkey")
-async def setkey(interaction: discord.Interaction, api_key: str):
+    await interaction.response.send_message(embed=embed)
 
-    user_api_keys[str(interaction.user.id)] = api_key
-    save_json(API_KEYS_FILE, user_api_keys)
 
-    await interaction.response.send_message(
-        "✅ API key saved.",
-        ephemeral=True
-    )
+# ---------------- SERVER INFO ----------------
+@bot.tree.command(name="serverinfo", description="Server info")
+async def serverinfo(interaction: discord.Interaction):
+    g = interaction.guild
 
-@bot.tree.command(name="clearmemory")
-async def clearmemory(interaction: discord.Interaction):
+    embed = discord.Embed(title=g.name)
+    embed.add_field(name="Members", value=g.member_count)
+    embed.add_field(name="Owner", value=str(g.owner))
+    embed.add_field(name="Roles", value=len(g.roles))
 
-    uid = str(interaction.user.id)
+    await interaction.response.send_message(embed=embed)
 
-    if uid in user_memory:
-        del user_memory[uid]
 
-    save_json(MEMORY_FILE, user_memory)
+# ---------------- FUN COMMANDS ----------------
+@bot.tree.command(name="coinflip", description="Flip a coin")
+async def coinflip(interaction: discord.Interaction):
+    await interaction.response.send_message(random.choice(["Heads", "Tails"]))
 
-    await interaction.response.send_message("🧠 Memory cleared.")
 
-# ================= AI COMMAND (REPLY METHOD FIX) =================
-@bot.tree.command(name="ai")
-async def ai(interaction: discord.Interaction, prompt: str):
+@bot.tree.command(name="roll", description="Roll a dice")
+async def roll(interaction: discord.Interaction, sides: int = 6):
+    await interaction.response.send_message(f"🎲 {random.randint(1, sides)}")
+
+
+@bot.tree.command(name="8ball", description="Ask 8ball")
+async def eightball(interaction: discord.Interaction, question: str):
+    answers = ["Yes", "No", "Maybe", "Definitely", "Ask again"]
+    await interaction.response.send_message(f"🎱 {random.choice(answers)}")
+
+
+# ---------------- MODERATION: KICK ----------------
+@bot.tree.command(name="kick", description="Kick member")
+async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
 
     await interaction.response.defer()
 
-    user_id = str(interaction.user.id)
+    await member.kick(reason=reason)
 
-    if user_id not in user_api_keys:
-        return await interaction.followup.send("❌ Use `/setkey` first.")
-
-    client = OpenAI(
-        api_key=user_api_keys[user_id],
-        base_url="https://api.sambanova.ai/v1"
+    await send_modlog(
+        interaction.guild,
+        "👢 Kick",
+        f"{member} was kicked\nReason: {reason}\nBy: {interaction.user}"
     )
 
-    model = user_models.get(
-        user_id,
-        "Meta-Llama-3.3-70B-Instruct"
+    await interaction.followup.send(f"Kicked {member}")
+
+
+# ---------------- MODERATION: BAN ----------------
+@bot.tree.command(name="ban", description="Ban member")
+async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
+
+    await interaction.response.defer()
+
+    await member.ban(reason=reason)
+
+    await send_modlog(
+        interaction.guild,
+        "🔨 Ban",
+        f"{member} was banned\nReason: {reason}\nBy: {interaction.user}"
     )
 
-    if user_id not in user_memory:
-        user_memory[user_id] = [
-            {
-                "role": "system",
-                "content": "You are a helpful Discord assistant with memory."
-            }
-        ]
+    await interaction.followup.send(f"Banned {member}")
 
-    user_memory[user_id].append({
-        "role": "user",
-        "content": prompt
-    })
 
-    if len(user_memory[user_id]) > 20:
-        user_memory[user_id] = [
-            user_memory[user_id][0]
-        ] + user_memory[user_id][-19:]
+# ---------------- MODERATION: MUTE ----------------
+@bot.tree.command(name="mute", description="Timeout member")
+async def mute(interaction: discord.Interaction, member: discord.Member, minutes: int):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
 
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=user_memory[user_id],
-            temperature=0.7,
-            max_tokens=500
-        )
+    await interaction.response.defer()
 
-        reply = response.choices[0].message.content or "No response."
+    until = discord.utils.utcnow() + timedelta(minutes=minutes)
+    await member.timeout(until)
 
-        user_memory[user_id].append({
-            "role": "assistant",
-            "content": reply
-        })
+    await send_modlog(
+        interaction.guild,
+        "🔇 Mute",
+        f"{member} muted for {minutes} minutes\nBy: {interaction.user}"
+    )
 
-        save_json(MEMORY_FILE, user_memory)
+    await interaction.followup.send(f"Muted {member}")
 
-        chunks = split_message(reply)
 
-        # ================= REPLY METHOD (FIXED) =================
-        first = True
+# ---------------- MODERATION: UNMUTE ----------------
+@bot.tree.command(name="unmute", description="Remove timeout")
+async def unmute(interaction: discord.Interaction, member: discord.Member):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
 
-        for chunk in chunks:
-            if first:
-                await interaction.followup.send(chunk)
-                first = False
-            else:
-                await interaction.followup.send(chunk)
+    await member.timeout(None)
+    await interaction.response.send_message(f"🔊 Unmuted {member}")
 
-    except Exception as e:
-        await interaction.followup.send(f"❌ AI error:\n```{e}```")
 
-# ================= UTILS =================
-@bot.tree.command(name="ping")
-async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message(f"🏓 {round(bot.latency * 1000)}ms")
+# ---------------- WARN SYSTEM ----------------
+@bot.tree.command(name="warn", description="Warn user")
+async def warn(interaction: discord.Interaction, member: discord.Member, reason: str):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("❌ You are not Pax.", ephemeral=True)
 
-@bot.tree.command(name="uptime")
-async def uptime(interaction: discord.Interaction):
-    seconds = int(time.time() - start_time)
-    await interaction.response.send_message(f"⏱ {seconds}s")
+    warn_log.setdefault(member.id, []).append(reason)
 
-# ================= RUN =================
+    await interaction.response.send_message(
+        f"⚠️ Warned {member} | Total: {len(warn_log[member.id])}"
+    )
+
+
+# ---------------- WARNINGS ----------------
+@bot.tree.command(name="warnings", description="Check warnings")
+async def warnings(interaction: discord.Interaction, member: discord.Member):
+    count = len(warn_log.get(member.id, []))
+    await interaction.response.send_message(f"📄 {member} has {count} warnings")
+
+
 bot.run(TOKEN)
